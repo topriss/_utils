@@ -4,6 +4,7 @@ import time
 import math
 import random
 from subprocess import Popen, PIPE
+import json
 
 import numpy as np
 from PIL import Image
@@ -24,7 +25,7 @@ class GO(object):
     pass
 
 class AverageMeter(object):
-  """Compute running average."""
+  '''Compute running average.'''
   def __init__(self):
     self.val = 0
     self.sum = 0
@@ -35,6 +36,24 @@ class AverageMeter(object):
     self.sum += val * n
     self.cnt += n
     self.avg = self.sum / self.cnt
+
+def rupdate(d, u):
+  for k, v in u.items():
+    if isinstance(v, dict):
+      d[k] = rupdate(d.get(k, {}), v)
+    else:
+      d[k] = v
+  return d
+
+def check_cfg_allset(cfg, k_prefix=''):
+  flag = True
+  for k, v in cfg.items():
+    if isinstance(v, dict):
+      flag &= check_cfg_allset(v, k)
+    elif v is None:
+      print(f'\'{k_prefix}.{k}\' is not set')
+      flag = False
+  return flag
 
 def mkdir(work_dir):
   if os.path.isdir(work_dir):
@@ -59,19 +78,20 @@ class Timer(object):
     print(f'{f"[{self.name}]" if self.name else ""} Elapsed: {time.time() - self.tstart:.3f}')
 
 IMG_EXTENSIONS = (
-  "jpg",
-  "jpeg",
-  "png",
-  "ppm",
-  "bmp",
-  "pgm",
-  "tif",
-  "tiff",
-  "webp",
+  'jpg',
+  'jpeg',
+  'png',
+  'ppm',
+  'bmp',
+  'pgm',
+  'tif',
+  'tiff',
+  'webp',
 )
 def collect_images(rootdir, recursive=False):
-  all_s = Popen(f"find {rootdir} -maxdepth {1000 if recursive else 1} -type f | sort",  shell=True, stdout=PIPE, stderr=PIPE).communicate()[0].decode("utf-8").strip().split('\n')
-  return list(filter( lambda s:s.split('.')[-1].lower() in IMG_EXTENSIONS, all_s ))
+  assert not recursive, 'recursive not longer supported'
+  all_img = filter( lambda s:s.split('.')[-1].lower() in IMG_EXTENSIONS, os.listdir(rootdir) )
+  return [os.path.realpath(os.path.join(rootdir, img)) for img in all_img]
 
 def multipage(filename, dpi=100):
   print('preparing pdf ...')
@@ -80,8 +100,12 @@ def multipage(filename, dpi=100):
   pp.close()
   plt.close('all')
 
+def read_img_np(img_fpath):
+  img = Image.open(img_fpath).convert('RGB')
+  return np.array(img, dtype=np.float32) / 255.0
+
 def read_img_pt(img_fpath):
-  img = Image.open(img_fpath).convert("RGB")
+  img = Image.open(img_fpath).convert('RGB')
   return transforms.ToTensor()(img)
 
 class align_pad(object):
@@ -115,3 +139,28 @@ def torch_init(seed=11037):
   random.seed(seed)
   np.random.seed(seed)
   torch.manual_seed(seed)
+
+def fwd_anomaly_hook(self, m_in, m_out, out_idx_prefix=''):
+  '''
+  usage example:
+
+  torch.set_anomaly_enabled(True)
+  for n, m in netNloss.named_modules(prefix='netNloss'):
+    m._debug_name = n
+    m.register_forward_hook(fwd_anomaly_hook)
+  '''
+  if isinstance(m_out, torch.Tensor):
+    # print(f'module {self._debug_name}, output {out_idx_prefix}, mean={m_out.mean().item():.2e}, var={m_out.var().item():.2e}')
+    for ano_type in ['nan', 'inf']:
+      if eval(f'm_out.is{ano_type}().any()'):
+        print(m_out)
+        print(m_out.shape)
+        raise RuntimeError(f'module {self._debug_name}, output {out_idx_prefix}, found {ano_type}')
+  elif isinstance(m_out, tuple):
+    for i, _o in enumerate(m_out):
+      fwd_anomaly_hook(self, m_in, _o, out_idx_prefix=out_idx_prefix+'.'+str(i))
+  elif isinstance(m_out, dict):
+    for k, v in m_out.items():
+      fwd_anomaly_hook(self, m_in, v, out_idx_prefix=out_idx_prefix+'.'+k)
+  else:
+    print(f'in {self._debug_name}, m_out {out_idx_prefix}, unsupported m_out type {type(m_out)}')
