@@ -140,6 +140,10 @@ def torch_init(seed=11037):
   np.random.seed(seed)
   torch.manual_seed(seed)
 
+def torch_re(G=24-3):
+  _r = torch.zeros([1024//4, 1024, 1024, 21], dtype=torch.float32, device='cuda')
+  del _r
+
 def fwd_anomaly_hook(self, m_in, m_out, out_idx_prefix=''):
   '''
   usage example:
