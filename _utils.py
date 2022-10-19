@@ -132,13 +132,16 @@ class align_pad(object):
       img,
       (-self.p_l, -self.p_r, -self.p_t, -self.p_b) )
       
-def torch_init(seed=11037):
+def torch_init(seed=3407):
   # torch.backends.cudnn.benchmark = True      # A bool that, if True, causes cuDNN to benchmark multiple convolution algorithms and select the fastest. 
   # torch.backends.cudnn.deterministic = True  # A bool that, if True, causes cuDNN to only use deterministic convolution algorithms.
 
+  os.environ['PYTHONHASHSEED'] = str(seed)
   random.seed(seed)
   np.random.seed(seed)
   torch.manual_seed(seed)
+  torch.cuda.manual_seed(seed)
+  torch.cuda.manual_seed_all(seed)
 
 def torch_re(G=24-3):
   _r = torch.zeros([1024//4, 1024, 1024, 21], dtype=torch.float32, device='cuda')
